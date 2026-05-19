@@ -32,10 +32,18 @@ Le script utilise les APIs Windows officielles (`SHSetKnownFolderPath`) pour red
 
 ### Installation rapide
 
-1. Télécharge ou clone ce repo
-2. Double-clic sur `Run.bat` (élévation UAC automatique)
-3. Le script installe Google Drive for Desktop si nécessaire — connecte ton compte Google quand demandé
-4. La sync démarre automatiquement
+Deux modes au choix :
+
+**Mode GUI** (recommandé pour débuter) :
+1. Double-clic sur `RunGUI.bat` → interface graphique de configuration
+2. Coche les options voulues, ajuste, clique "Lancer"
+3. Le script principal s'auto-élève via UAC et exécute
+
+**Mode CLI** (avec arguments) :
+1. Double-clic sur `Run.bat` → lance avec les défauts
+2. Ou en ligne de commande : `.\Install-GoogleDriveSync.ps1 -IncludeScripts ...`
+
+Dans les deux cas : le script installe Google Drive for Desktop si nécessaire (connecte ton compte Google quand demandé) et lance la sync.
 
 ### Sur un nouveau PC
 

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Redirige les dossiers utilisateur Windows (Documents, Images, Vidéos, Musique, Objets 3D, Bureau)
     vers une arborescence Google Drive pour synchroniser automatiquement entre plusieurs PC.
