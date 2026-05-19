@@ -11,7 +11,7 @@ Le script utilise les APIs Windows officielles (`SHSetKnownFolderPath`) pour red
 - Images (Pictures)
 - Vidéos (Videos)
 - Musique (Music)
-- Objets 3D (3D Objects) — skippé si absent (Windows 11 22H2+)
+- Objets 3D (3D Objects) — skippé si absent (Windows 11 22H2+), créé via `-Force3DObjects`
 - Bureau (Desktop) — opt-in via `-IncludeDesktop`
 
 ### Extras (opt-in via symlinks)
@@ -49,6 +49,9 @@ Re-cloner le repo + relancer `Run.bat`. Une fois Google Drive synchronisé, le s
 
 # Avec Bureau + Scripts + Office
 .\Install-GoogleDriveSync.ps1 -IncludeDesktop -IncludeScripts -IncludeOfficeTemplates
+
+# Forcer la creation du dossier Objets 3D (Win11 22H2+ par defaut sans)
+.\Install-GoogleDriveSync.ps1 -Force3DObjects
 
 # Synchroniser config dev (SSH + .gitconfig)
 .\Install-GoogleDriveSync.ps1 -IncludeDevConfig

@@ -29,6 +29,10 @@
 .PARAMETER IncludeDesktop
     Inclure le Bureau dans la synchronisation.
 
+.PARAMETER Force3DObjects
+    Force la création du dossier "3D Objects" même s'il n'existe pas (cas Windows 11 22H2+).
+    Utile si tu utilises Blender, Paint 3D, etc.
+
 .PARAMETER DriveLetter
     Lettre du drive Google Drive si auto-détection impossible (ex: 'G').
 
@@ -95,6 +99,9 @@ param(
 
     [Parameter(ParameterSetName='Install')]
     [switch]$IncludeDesktop,
+
+    [Parameter(ParameterSetName='Install')]
+    [switch]$Force3DObjects,
 
     [Parameter(ParameterSetName='Install')]
     [ValidatePattern('^[A-Za-z]$')]
@@ -843,10 +850,15 @@ try {
         if (-not $oldPath) { $oldPath = $kf.Local }
         $newPath = Join-Path $rootPath $name
 
-        # Skip 3D Objects sur Win11 22H2+ (dossier désactivé par défaut)
+        # 3D Objects désactivé par défaut sur Win11 22H2+ : skip sauf si -Force3DObjects
         if ($name -eq '3D Objects' -and -not (Test-Path -LiteralPath $oldPath)) {
-            Write-Log "3D Objects absent (Win11 22H2+ par défaut) — skip."
-            continue
+            if ($Force3DObjects) {
+                New-Item -ItemType Directory -Path $oldPath -Force | Out-Null
+                Write-Log "3D Objects créé (Force3DObjects) : $oldPath" 'OK'
+            } else {
+                Write-Log "3D Objects absent (Win11 22H2+) — skip. Utilise -Force3DObjects pour le créer."
+                continue
+            }
         }
 
         Write-Log "--- $name ---"
