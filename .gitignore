@@ -1,0 +1,20 @@
+# Logs générés par le script
+*.log
+GoogleDriveSync_*.log
+robocopy_*.log
+rc_*.log
+extra_*.log
+
+# Installeurs téléchargés
+GoogleDriveSetup*.exe
+
+# Windows artefacts
+Thumbs.db
+Desktop.ini
+*.lnk
+
+# Editeur
+.vscode/
+.idea/
+*.swp
+*~
