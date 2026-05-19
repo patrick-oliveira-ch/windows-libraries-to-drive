@@ -72,7 +72,19 @@ Re-cloner le repo + relancer `Run.bat`. Une fois Google Drive synchronisé, le s
 
 # Nom de dossier racine personnalisé sur Drive
 .\Install-GoogleDriveSync.ps1 -RootName "SyncWindows"
+
+# Ré-épingler les dossiers Drive à l'Accès rapide Explorer
+# (utile après avoir créé un nouveau dossier sur Drive depuis un autre PC)
+.\Install-GoogleDriveSync.ps1 -RefreshQuickAccess
 ```
+
+## Accès rapide Windows
+
+Une fois le script lancé, tous les dossiers sous `WindowsLibraries\` (Scripts, DevConfig, Office, et tout dossier que tu créeras toi-même sur Drive) sont **automatiquement épinglés à l'Accès rapide** de l'Explorateur — sous Documents/Pictures/Videos dans le volet de navigation.
+
+Les dossiers déjà accessibles via Known Folder (Documents, Pictures, Videos, Music, 3D Objects, Desktop) ne sont **pas** ré-épinglés pour éviter les doublons.
+
+Si tu crées un nouveau dossier sur Drive depuis un autre PC, relance `RunGUI.bat` → bouton "Réépingler maintenant" (ou ligne de commande `-RefreshQuickAccess`). Pas besoin d'admin pour cette opération.
 
 Toutes les options : `Get-Help .\Install-GoogleDriveSync.ps1 -Full`
 

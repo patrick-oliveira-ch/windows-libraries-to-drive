@@ -45,6 +45,11 @@
 .PARAMETER RestoreOneDrive
     Annule les policies HKLM appliquées par -DisableOneDrive. Ne réinstalle pas OneDrive.
 
+.PARAMETER RefreshQuickAccess
+    Épingle à l'Accès rapide Windows tous les dossiers présents sous WindowsLibraries\
+    qui ne correspondent pas à un Known Folder déjà visible. Utile après avoir créé
+    de nouveaux dossiers sur Drive depuis un autre PC. Ne nécessite pas les droits admin.
+
 .PARAMETER IncludeScripts
     Synchronise %USERPROFILE%\Scripts\ via symlink.
 
@@ -120,15 +125,20 @@ param(
     [Parameter(ParameterSetName='Restore', Mandatory=$true)]
     [switch]$RestoreOneDrive,
 
+    [Parameter(ParameterSetName='Refresh', Mandatory=$true)]
+    [switch]$RefreshQuickAccess,
+
     [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
 
 # Auto-élévation : relance avec UAC si pas admin (préserve les arguments)
+# Le mode -RefreshQuickAccess ne touche que HKCU → pas besoin d'admin.
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal(
     [Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+$needsAdmin = -not $RefreshQuickAccess
+if ($needsAdmin -and -not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     if (-not $PSCommandPath) { throw "Impossible de relancer avec UAC : script appelé sans fichier." }
     Write-Host "Élévation administrateur requise pour : $PSCommandPath" -ForegroundColor Yellow
     if (-not $Force) {
@@ -470,6 +480,72 @@ function Invoke-ExplorerRefresh {
     [KnownFolderPath]::SHChangeNotify(0x08000000, 0x0000, [IntPtr]::Zero, [IntPtr]::Zero)
 }
 
+# --- Accès rapide Windows (Quick Access) ---
+
+function Test-IsPinnedToQuickAccess {
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+        $shell = New-Object -ComObject Shell.Application
+        # Namespace de l'Accès rapide
+        $qa = $shell.Namespace('shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}')
+        if (-not $qa) { return $false }
+        $target = (ConvertTo-NormalPath $Path).ToLowerInvariant()
+        foreach ($item in $qa.Items()) {
+            try {
+                $itemPath = (ConvertTo-NormalPath $item.Path).ToLowerInvariant()
+                if ($itemPath -eq $target) { return $true }
+            } catch {}
+        }
+        return $false
+    } catch {
+        return $false
+    }
+}
+
+function Add-ToQuickAccess {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return }
+    if (Test-IsPinnedToQuickAccess -Path $Path) {
+        Write-Log "Déjà épinglé : $(Split-Path -Leaf $Path)"
+        return
+    }
+    try {
+        $shell = New-Object -ComObject Shell.Application
+        $folder = $shell.Namespace($Path)
+        if ($folder -and $folder.Self) {
+            $folder.Self.InvokeVerb('pintohome')
+            Write-Log "Épinglé à l'Accès rapide : $(Split-Path -Leaf $Path)" 'OK'
+        }
+    } catch {
+        Write-Log "Échec épinglage $Path : $($_.Exception.Message)" 'WARN'
+    }
+}
+
+function Update-QuickAccessPins {
+    param([Parameter(Mandatory)][string]$RootPath)
+    if (-not (Test-Path -LiteralPath $RootPath)) {
+        Write-Log "Root introuvable, skip Accès rapide : $RootPath" 'WARN'
+        return
+    }
+    Write-Log "=== Épinglage Accès rapide ===" 'INFO'
+    # Ces dossiers sont déjà visibles dans l'Explorateur via leur Known Folder.
+    $skipNames = @('Documents','Pictures','Videos','Music','3D Objects','Desktop')
+    foreach ($d in Get-ChildItem -LiteralPath $RootPath -Directory -ErrorAction SilentlyContinue) {
+        if ($skipNames -contains $d.Name) {
+            Write-Log "Skip $($d.Name) (Known Folder, déjà visible)"
+            continue
+        }
+        Add-ToQuickAccess -Path $d.FullName
+    }
+}
+
+function Get-DriveRootPath {
+    # Détecte le root à partir du Known Folder Documents (déjà redirigé).
+    $docPath = Get-CurrentKnownFolderPath -RegName 'Personal'
+    if (-not $docPath -or -not (Test-Path -LiteralPath $docPath)) { return $null }
+    return Split-Path -Parent $docPath
+}
+
 # --- Known Folders ---
 
 $KnownFolders = @{
@@ -528,7 +604,8 @@ function Invoke-Robocopy {
     param(
         [Parameter(Mandatory)][string]$Source,
         [Parameter(Mandatory)][string]$Destination,
-        [string[]]$Options = @('/E','/R:5','/W:5'),
+        # /XJ exclut les junctions (évite la récursion via My Pictures, My Music, etc. dans Documents)
+        [string[]]$Options = @('/E','/R:5','/W:5','/XJ'),
         [string]$LogName = 'robocopy'
     )
     $rcLog = Join-Path $env:TEMP "${LogName}_$(Get-Date -Format 'HHmmss').log"
@@ -565,7 +642,7 @@ function Move-FolderContents {
 
     Write-Log "robocopy /MOVE : $Source -> $Destination"
     $code = Invoke-Robocopy -Source $Source -Destination $Destination `
-            -Options @('/MOVE','/E','/R:5','/W:5') -LogName "rc_$(Split-Path $Source -Leaf)"
+            -Options @('/MOVE','/E','/R:5','/W:5','/XJ') -LogName "rc_$(Split-Path $Source -Leaf)"
     if ($code -ge 8) {
         throw "Robocopy a échoué (code $code) pour $Source. Voir log."
     }
@@ -646,7 +723,7 @@ function Update-ExtraMapping {
                 }
                 Write-Log "Fusion contenu (robocopy /E /XO)..."
                 $code = Invoke-Robocopy -Source $source -Destination $target `
-                        -Options @('/E','/XO','/R:5','/W:5') -LogName "extra_$Name"
+                        -Options @('/E','/XO','/R:5','/W:5','/XJ') -LogName "extra_$Name"
                 if ($code -ge 8) {
                     throw "Robocopy a échoué pour mapping extra '$Name' (code $code)."
                 }
@@ -820,6 +897,16 @@ try {
     Write-Log "=== Google Drive Sync Setup ===" 'INFO'
     Write-Log "Journal : $script:LogFile"
 
+    if ($RefreshQuickAccess) {
+        $root = Get-DriveRootPath
+        if (-not $root) {
+            throw "Impossible de détecter le dossier racine. Documents n'a pas l'air d'être redirigé vers Drive."
+        }
+        Update-QuickAccessPins -RootPath $root
+        Write-Log "=== Refresh Accès rapide terminé ===" 'OK'
+        return
+    }
+
     Assert-Admin
 
     if ($RestoreOneDrive) {
@@ -884,6 +971,8 @@ try {
     }
 
     if ($DisableOneDrive) { Disable-OneDrive }
+
+    Update-QuickAccessPins -RootPath $rootPath
 
     Invoke-ExplorerRefresh -UpdatedPaths $refreshList
 

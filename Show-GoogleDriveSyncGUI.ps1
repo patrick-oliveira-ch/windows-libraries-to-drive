@@ -5,6 +5,7 @@
 .DESCRIPTION
     Génère la ligne de commande à partir des choix utilisateur, puis lance le script
     principal dans une console séparée (le script s'auto-élève via UAC si besoin).
+    Fenêtre scrollable pour s'adapter aux écrans plus petits.
 #>
 [CmdletBinding()]
 param()
@@ -26,10 +27,11 @@ if (-not (Test-Path -LiteralPath $mainScript)) {
 # --- Form ---
 $form = New-Object System.Windows.Forms.Form
 $form.Text            = 'Google Drive Sync — Configuration'
-$form.ClientSize      = New-Object System.Drawing.Size(560, 700)
+$form.ClientSize      = New-Object System.Drawing.Size(580, 600)
+$form.MinimumSize     = New-Object System.Drawing.Size(600, 400)
 $form.StartPosition   = 'CenterScreen'
-$form.FormBorderStyle = 'FixedDialog'
-$form.MaximizeBox     = $false
+$form.FormBorderStyle = 'Sizable'
+$form.MaximizeBox     = $true
 $form.Font            = New-Object System.Drawing.Font('Segoe UI', 9)
 
 # --- Helpers ---
@@ -64,6 +66,12 @@ function New-GroupBox {
 $script:tooltip = New-Object System.Windows.Forms.ToolTip
 $tooltip.AutoPopDelay = 12000
 $tooltip.InitialDelay = 400
+
+# === Panneau scrollable (Dock=Fill) ===
+$scrollPanel = New-Object System.Windows.Forms.Panel
+$scrollPanel.Dock       = 'Fill'
+$scrollPanel.AutoScroll = $true
+$scrollPanel.Padding    = New-Object System.Windows.Forms.Padding(0, 0, 0, 0)
 
 # === Section 1 : Dossiers extras ===
 $grpFolders = New-GroupBox 'Dossiers à synchroniser (extras)' 10 10 540 165
@@ -124,14 +132,29 @@ $tooltip.SetToolTip($btnRestore, "Lance le script en mode -RestoreOneDrive sans 
 
 $grpOneDrive.Controls.AddRange(@($cbDisableOD, $btnRestore))
 
-# === Section 4 : Options globales ===
-$grpOpts = New-GroupBox 'Options' 10 450 540 60
+# === Section 4 : Accès rapide Windows ===
+$grpQA = New-GroupBox 'Accès rapide Windows' 10 450 540 90
+
+$lblQA = New-Label "Épingle les dossiers Drive (Scripts, etc.) à l'Accès rapide Explorer." 15 22 510
+$lblQA.AutoSize = $false
+$lblQA.Size = New-Object System.Drawing.Size(510, 20)
+
+$btnRefreshQA = New-Object System.Windows.Forms.Button
+$btnRefreshQA.Text = "Réépingler maintenant (refresh après création de nouveau dossier Drive)"
+$btnRefreshQA.Location = New-Object System.Drawing.Point(15, 50)
+$btnRefreshQA.Size = New-Object System.Drawing.Size(510, 30)
+$tooltip.SetToolTip($btnRefreshQA, "Lance -RefreshQuickAccess : pas besoin d'admin, n'épingle que les dossiers extras (skip Documents/Pictures/etc. déjà visibles).")
+
+$grpQA.Controls.AddRange(@($lblQA, $btnRefreshQA))
+
+# === Section 5 : Options globales ===
+$grpOpts = New-GroupBox 'Options' 10 550 540 60
 $cbForce = New-Check '-Force  (aucune confirmation interactive — mode automatique)' 15 25 510 `
     "ATTENTION : -Force autorise aussi la sync de clés SSH non chiffrées."
 $grpOpts.Controls.Add($cbForce)
 
 # === Aperçu commande ===
-$grpPreview = New-GroupBox 'Aperçu de la commande' 10 520 540 100
+$grpPreview = New-GroupBox 'Aperçu de la commande' 10 620 540 100
 $txtPreview = New-Object System.Windows.Forms.TextBox
 $txtPreview.Location = New-Object System.Drawing.Point(10, 22)
 $txtPreview.Size = New-Object System.Drawing.Size(520, 70)
@@ -142,28 +165,42 @@ $txtPreview.BackColor = [System.Drawing.Color]::White
 $txtPreview.Font = New-Object System.Drawing.Font('Consolas', 9)
 $grpPreview.Controls.Add($txtPreview)
 
-# === Boutons ===
+# Ajouter toutes les sections au panneau scrollable
+$scrollPanel.Controls.AddRange(@(
+    $grpFolders, $grpConfig, $grpOneDrive, $grpQA, $grpOpts, $grpPreview
+))
+
+# === Panneau du bas (fixe, contient les boutons) ===
+$bottomPanel = New-Object System.Windows.Forms.Panel
+$bottomPanel.Dock        = 'Bottom'
+$bottomPanel.Height      = 55
+$bottomPanel.BorderStyle = 'FixedSingle'
+
 $btnLaunch = New-Object System.Windows.Forms.Button
 $btnLaunch.Text = 'Lancer'
-$btnLaunch.Location = New-Object System.Drawing.Point(350, 635)
-$btnLaunch.Size = New-Object System.Drawing.Size(95, 32)
+$btnLaunch.Location = New-Object System.Drawing.Point(355, 12)
+$btnLaunch.Size = New-Object System.Drawing.Size(105, 32)
 $btnLaunch.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+$btnLaunch.Anchor = 'Top, Right'
 
 $btnCancel = New-Object System.Windows.Forms.Button
 $btnCancel.Text = 'Annuler'
-$btnCancel.Location = New-Object System.Drawing.Point(455, 635)
-$btnCancel.Size = New-Object System.Drawing.Size(95, 32)
+$btnCancel.Location = New-Object System.Drawing.Point(465, 12)
+$btnCancel.Size = New-Object System.Drawing.Size(105, 32)
 $btnCancel.DialogResult = 'Cancel'
+$btnCancel.Anchor = 'Top, Right'
 
-$form.Controls.AddRange(@(
-    $grpFolders, $grpConfig, $grpOneDrive, $grpOpts, $grpPreview,
-    $btnLaunch, $btnCancel
-))
+$bottomPanel.Controls.AddRange(@($btnLaunch, $btnCancel))
+
+# Ordre d'ajout : Bottom d'abord, Fill ensuite (pour que Fill prenne l'espace restant)
+$form.Controls.Add($bottomPanel)
+$form.Controls.Add($scrollPanel)
 $form.AcceptButton = $btnLaunch
 $form.CancelButton = $btnCancel
 
 # --- Génération des args ---
 function Get-ArgsForRestore { return @('-RestoreOneDrive') }
+function Get-ArgsForRefreshQA { return @('-RefreshQuickAccess') }
 
 function Get-ArgsFromForm {
     $a = @()
@@ -232,6 +269,11 @@ $btnRestore.Add_Click({
         'Confirmation', 'YesNo', 'Question')
     if ($r -ne 'Yes') { return }
     Invoke-MainScript -ScriptArgs (Get-ArgsForRestore)
+    $form.Close()
+})
+
+$btnRefreshQA.Add_Click({
+    Invoke-MainScript -ScriptArgs (Get-ArgsForRefreshQA)
     $form.Close()
 })
 
