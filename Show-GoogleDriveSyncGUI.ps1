@@ -74,23 +74,32 @@ $scrollPanel.AutoScroll = $true
 $scrollPanel.Padding    = New-Object System.Windows.Forms.Padding(0, 0, 0, 0)
 
 # === Section 1 : Dossiers extras ===
-$grpFolders = New-GroupBox 'Dossiers à synchroniser (extras)' 10 10 540 165
+$grpFolders = New-GroupBox 'Dossiers à synchroniser (extras)' 10 10 540 195
 
 $cbDesktop = New-Check '-IncludeDesktop  (synchronise le Bureau)' 15 25 510 `
-    "Ajoute le dossier Bureau aux Known Folders redirigés."
-$cb3D = New-Check '-Force3DObjects  (crée Objets 3D si absent — Win11 22H2+)' 15 50 510 `
+    "Ajoute le dossier Bureau aux Known Folders redirigés. Les raccourcis (.lnk/.url) sont exclus par défaut et déplacés vers Public Desktop."
+$cbDesktopShortcuts = New-Check '   ↳ -IncludeDesktopShortcuts  (syncer aussi les .lnk/.url)' 30 47 495 `
+    "DÉCONSEILLÉ : les raccourcis pointent vers des programmes locaux et seront cassés sur les autres PC."
+$cbDesktopShortcuts.Enabled = $false
+$cb3D = New-Check '-Force3DObjects  (crée Objets 3D si absent — Win11 22H2+)' 15 72 510 `
     "Sans cette option, 3D Objects est skippé s'il n'existe pas."
-$cbScripts = New-Check '-IncludeScripts  (~\Scripts\)' 15 75 510 `
+$cbScripts = New-Check '-IncludeScripts  (~\Scripts\)' 15 97 510 `
     "Symlink vers C:\Users\<user>\Scripts\ — utile pour porter tes scripts multi-PC."
-$cbDev = New-Check '-IncludeDevConfig  (.ssh\ + .gitconfig)' 15 100 510 `
+$cbDev = New-Check '-IncludeDevConfig  (.ssh\ + .gitconfig)' 15 122 510 `
     "BLOQUÉ si une clé SSH privée non chiffrée est détectée (sauf -Force)."
-$cbOffice = New-Check '-IncludeOfficeTemplates  (Templates Word/Excel + Signatures Outlook)' 15 125 510 `
+$cbOffice = New-Check '-IncludeOfficeTemplates  (Templates Word/Excel + Signatures Outlook)' 15 147 510 `
     "Symlinks vers %APPDATA%\Microsoft\Templates et \Signatures."
 
-$grpFolders.Controls.AddRange(@($cbDesktop, $cb3D, $cbScripts, $cbDev, $cbOffice))
+# Active/désactive le sub-toggle shortcuts selon Desktop
+$cbDesktop.Add_CheckedChanged({
+    $cbDesktopShortcuts.Enabled = $cbDesktop.Checked
+    if (-not $cbDesktop.Checked) { $cbDesktopShortcuts.Checked = $false }
+})
+
+$grpFolders.Controls.AddRange(@($cbDesktop, $cbDesktopShortcuts, $cb3D, $cbScripts, $cbDev, $cbOffice))
 
 # === Section 2 : Configuration ===
-$grpConfig = New-GroupBox 'Configuration' 10 185 540 145
+$grpConfig = New-GroupBox 'Configuration' 10 215 540 145
 
 $grpConfig.Controls.Add((New-Label 'Nom du dossier racine sur Drive :' 15 30 220))
 $txtRoot = New-Object System.Windows.Forms.TextBox
@@ -119,7 +128,7 @@ $cbSkipInstall = New-Check '-SkipInstall  (Google Drive déjà installé et conn
 $grpConfig.Controls.Add($cbSkipInstall)
 
 # === Section 3 : OneDrive ===
-$grpOneDrive = New-GroupBox 'OneDrive' 10 340 540 100
+$grpOneDrive = New-GroupBox 'OneDrive' 10 370 540 100
 
 $cbDisableOD = New-Check '-DisableOneDrive  (migrer puis désinstaller OneDrive)' 15 25 510 `
     "Désinstalle OneDrive et bloque sa réinstallation via policy HKLM. Impact: désactive aussi OneDrive for Business."
@@ -133,7 +142,7 @@ $tooltip.SetToolTip($btnRestore, "Lance le script en mode -RestoreOneDrive sans 
 $grpOneDrive.Controls.AddRange(@($cbDisableOD, $btnRestore))
 
 # === Section 4 : Accès rapide Windows ===
-$grpQA = New-GroupBox 'Accès rapide Windows' 10 450 540 195
+$grpQA = New-GroupBox 'Accès rapide Windows' 10 480 540 195
 
 $lblQA = New-Label "Épingle les dossiers Drive (Scripts, 3D Objects, etc.) à l'Accès rapide Explorer." 15 22 510
 $lblQA.AutoSize = $false
@@ -190,13 +199,13 @@ Update-ScheduledState
 $grpQA.Controls.AddRange(@($lblQA, $btnRefreshQA, $lblSched, $lblInterval, $numInterval, $btnInstallSched, $btnUninstallSched, $lblSchedState))
 
 # === Section 5 : Options globales ===
-$grpOpts = New-GroupBox 'Options' 10 655 540 60
+$grpOpts = New-GroupBox 'Options' 10 685 540 60
 $cbForce = New-Check '-Force  (aucune confirmation interactive — mode automatique)' 15 25 510 `
     "ATTENTION : -Force autorise aussi la sync de clés SSH non chiffrées."
 $grpOpts.Controls.Add($cbForce)
 
 # === Aperçu commande ===
-$grpPreview = New-GroupBox 'Aperçu de la commande' 10 725 540 100
+$grpPreview = New-GroupBox 'Aperçu de la commande' 10 755 540 100
 $txtPreview = New-Object System.Windows.Forms.TextBox
 $txtPreview.Location = New-Object System.Drawing.Point(10, 22)
 $txtPreview.Size = New-Object System.Drawing.Size(520, 70)
@@ -252,6 +261,7 @@ function Get-ArgsFromForm {
         $a += @('-RootName', $txtRoot.Text)
     }
     if ($cbDesktop.Checked)     { $a += '-IncludeDesktop' }
+    if ($cbDesktopShortcuts.Checked) { $a += '-IncludeDesktopShortcuts' }
     if ($cb3D.Checked)          { $a += '-Force3DObjects' }
     if ($cbScripts.Checked)     { $a += '-IncludeScripts' }
     if ($cbDev.Checked)         { $a += '-IncludeDevConfig' }
@@ -277,7 +287,7 @@ function Update-Preview { $txtPreview.Text = Format-Preview (Get-ArgsFromForm) }
 Update-Preview
 
 # Hook tous les contrôles pour rafraîchir l'aperçu
-foreach ($c in @($cbDesktop, $cb3D, $cbScripts, $cbDev, $cbOffice,
+foreach ($c in @($cbDesktop, $cbDesktopShortcuts, $cb3D, $cbScripts, $cbDev, $cbOffice,
                  $cbSkipInstall, $cbDisableOD, $cbForce)) {
     $c.Add_CheckedChanged({ Update-Preview })
 }

@@ -27,7 +27,14 @@
     Validé : alphanumériques, tirets, underscores, espaces simples (max 64 car.).
 
 .PARAMETER IncludeDesktop
-    Inclure le Bureau dans la synchronisation.
+    Inclure le Bureau dans la synchronisation. Les raccourcis (.lnk, .url) sont AUTOMATIQUEMENT
+    exclus de la sync et déplacés vers C:\Users\Public\Desktop (visible sur le Bureau mais
+    non synchronisé). Utilise -IncludeDesktopShortcuts pour quand même syncer les raccourcis.
+
+.PARAMETER IncludeDesktopShortcuts
+    Avec -IncludeDesktop : synchronise aussi les raccourcis .lnk et .url. ATTENTION : les
+    raccourcis pointent vers des chemins locaux (programmes installés) et seront cassés sur
+    les autres PC. Désactivé par défaut.
 
 .PARAMETER Force3DObjects
     Force la création du dossier "3D Objects" même s'il n'existe pas (cas Windows 11 22H2+).
@@ -115,6 +122,9 @@ param(
 
     [Parameter(ParameterSetName='Install')]
     [switch]$IncludeDesktop,
+
+    [Parameter(ParameterSetName='Install')]
+    [switch]$IncludeDesktopShortcuts,
 
     [Parameter(ParameterSetName='Install')]
     [switch]$Force3DObjects,
@@ -742,6 +752,61 @@ function Move-FolderContents {
     }
 }
 
+function Move-DesktopContents {
+    # Variante de Move-FolderContents pour le Bureau :
+    #  - Exclut .lnk / .url de la migration vers Drive
+    #  - Déplace ces raccourcis vers C:\Users\Public\Desktop (visible sur Bureau, non syncé)
+    param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Destination)
+    if (-not (Test-Path -LiteralPath $Source)) { return }
+    try {
+        $srcResolved = ConvertTo-NormalPath (Resolve-Path -LiteralPath $Source -ErrorAction Stop).Path
+        $dstResolved = ConvertTo-NormalPath (Resolve-Path -LiteralPath $Destination -ErrorAction Stop).Path
+        if ($srcResolved -eq $dstResolved) { return }
+    } catch { return }
+
+    # 1. Déplacer raccourcis vers Public Desktop AVANT la migration robocopy
+    $publicDesk = Join-Path $env:PUBLIC 'Desktop'
+    if (-not (Test-Path -LiteralPath $publicDesk)) {
+        New-Item -ItemType Directory -Path $publicDesk -Force | Out-Null
+    }
+    $shortcuts = @(Get-ChildItem -LiteralPath $Source -File -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension -in @('.lnk','.url') })
+    foreach ($s in $shortcuts) {
+        $dest = Join-Path $publicDesk $s.Name
+        if (Test-Path -LiteralPath $dest) {
+            Write-Log "Raccourci '$($s.Name)' existe déjà sur Public Desktop — laissé sur place." 'WARN'
+            continue
+        }
+        try {
+            Move-Item -LiteralPath $s.FullName -Destination $dest -Force
+            Write-Log "Raccourci déplacé vers Public Desktop : $($s.Name)"
+        } catch {
+            Write-Log "Échec déplacement '$($s.Name)' vers Public Desktop : $($_.Exception.Message)" 'WARN'
+        }
+    }
+
+    # 2. Migrer le reste vers Drive (robocopy /MOVE avec exclusion shortcuts par sécurité)
+    $hasItems = [System.IO.Directory]::EnumerateFileSystemEntries($Source) | Select-Object -First 1
+    if (-not $hasItems) {
+        try { Remove-Item -LiteralPath $Source -Force -Recurse -ErrorAction SilentlyContinue } catch {}
+        return
+    }
+
+    Write-Log "robocopy /MOVE Desktop (exclus .lnk/.url) : $Source -> $Destination"
+    $code = Invoke-Robocopy -Source $Source -Destination $Destination `
+            -Options @('/MOVE','/E','/R:5','/W:5','/XJ','/XF','*.lnk','*.url') `
+            -LogName "rc_Desktop"
+    if ($code -ge 8) {
+        throw "Robocopy a échoué (code $code) pour Desktop."
+    }
+    if ((Test-Path -LiteralPath $Source) -and
+        -not ([System.IO.Directory]::EnumerateFileSystemEntries($Source) | Select-Object -First 1)) {
+        try { Remove-Item -LiteralPath $Source -Force -Recurse } catch {
+            Write-Log "Source résiduelle non supprimée : $Source" 'WARN'
+        }
+    }
+}
+
 # --- Symlinks (mappings extras) ---
 
 function New-DriveSymLink {
@@ -1051,7 +1116,11 @@ try {
         if (-not (Test-Path -LiteralPath $newPath)) {
             New-Item -ItemType Directory -Path $newPath -Force | Out-Null
         }
-        Move-FolderContents -Source $oldPath -Destination $newPath
+        if ($name -eq 'Desktop' -and -not $IncludeDesktopShortcuts) {
+            Move-DesktopContents -Source $oldPath -Destination $newPath
+        } else {
+            Move-FolderContents -Source $oldPath -Destination $newPath
+        }
         Set-KnownFolder -Name $name -TargetPath $newPath
         $refreshList += $newPath
     }
