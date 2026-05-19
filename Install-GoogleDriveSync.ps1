@@ -589,11 +589,16 @@ function Register-DriveSyncRefreshTask {
         -Execute 'powershell.exe' `
         -Argument ("-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -RefreshQuickAccess")
 
-    # Trigger à la connexion + sous-pattern qui répète toutes les X min indéfiniment
-    $logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
-    $repTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
-        -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)
-    $logonTrigger.Repetition = $repTrigger.Repetition
+    # Deux triggers séparés (assigner Repetition entre triggers ne marche pas en PS 5.1) :
+    #   1. AtLogOn : démarre dès la connexion utilisateur
+    #   2. TimeTrigger Once + Repetition : répète toutes les N min (durée 9999 jours = quasi indéfini)
+    $startTime = (Get-Date).AddMinutes(1)
+    $triggers = @(
+        (New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"),
+        (New-ScheduledTaskTrigger -Once -At $startTime `
+            -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
+            -RepetitionDuration (New-TimeSpan -Days 9999))
+    )
 
     $principal = New-ScheduledTaskPrincipal `
         -UserId "$env:USERDOMAIN\$env:USERNAME" `
@@ -610,7 +615,7 @@ function Register-DriveSyncRefreshTask {
 
     Register-ScheduledTask `
         -TaskName $script:ScheduledTaskName `
-        -Action $action -Trigger $logonTrigger `
+        -Action $action -Trigger $triggers `
         -Principal $principal -Settings $settings `
         -Description "Auto-épingle les dossiers Drive sous WindowsLibraries à l'Accès rapide Explorer." `
         -Force | Out-Null
