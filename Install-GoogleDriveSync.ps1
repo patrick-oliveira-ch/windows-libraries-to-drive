@@ -31,6 +31,13 @@
     exclus de la sync et déplacés vers C:\Users\Public\Desktop (visible sur le Bureau mais
     non synchronisé). Utilise -IncludeDesktopShortcuts pour quand même syncer les raccourcis.
 
+.PARAMETER FlatPersonalFolders
+    Par défaut, Documents et Desktop sont placés dans un sous-dossier portant le nom du PC
+    (ex: G:\Mon Drive\<RootName>\Documents\<COMPUTERNAME>\) pour éviter les collisions
+    entre plusieurs PC qui syncent vers le même Drive. Active cette option pour utiliser
+    à la place un dossier plat partagé entre tous les PC. Affecte uniquement Documents
+    et Desktop ; Pictures/Videos/Music/3D Objects restent toujours partagés.
+
 .PARAMETER IncludeDesktopShortcuts
     Avec -IncludeDesktop : synchronise aussi les raccourcis .lnk et .url. ATTENTION : les
     raccourcis pointent vers des chemins locaux (programmes installés) et seront cassés sur
@@ -125,6 +132,9 @@ param(
 
     [Parameter(ParameterSetName='Install')]
     [switch]$IncludeDesktopShortcuts,
+
+    [Parameter(ParameterSetName='Install')]
+    [switch]$FlatPersonalFolders,
 
     [Parameter(ParameterSetName='Install')]
     [switch]$Force3DObjects,
@@ -738,8 +748,11 @@ function Move-FolderContents {
     }
 
     Write-Log "robocopy /MOVE : $Source -> $Destination"
+    # /XD <Destination> empêche la récursion dans la cible quand cible est sous source
+    # (cas Documents flat → Documents\<PC>\)
     $code = Invoke-Robocopy -Source $Source -Destination $Destination `
-            -Options @('/MOVE','/E','/R:5','/W:5','/XJ') -LogName "rc_$(Split-Path $Source -Leaf)"
+            -Options @('/MOVE','/E','/R:5','/W:5','/XJ','/XD',$Destination) `
+            -LogName "rc_$(Split-Path $Source -Leaf)"
     if ($code -ge 8) {
         throw "Robocopy a échoué (code $code) pour $Source. Voir log."
     }
@@ -793,8 +806,9 @@ function Move-DesktopContents {
     }
 
     Write-Log "robocopy /MOVE Desktop (exclus .lnk/.url) : $Source -> $Destination"
+    # /XD <Destination> : voir Move-FolderContents pour explication.
     $code = Invoke-Robocopy -Source $Source -Destination $Destination `
-            -Options @('/MOVE','/E','/R:5','/W:5','/XJ','/XF','*.lnk','*.url') `
+            -Options @('/MOVE','/E','/R:5','/W:5','/XJ','/XD',$Destination,'/XF','*.lnk','*.url') `
             -LogName "rc_Desktop"
     if ($code -ge 8) {
         throw "Robocopy a échoué (code $code) pour Desktop."
@@ -1093,13 +1107,20 @@ try {
 
     $toRedirect = @('Documents','Pictures','Videos','Music','3D Objects')
     if ($IncludeDesktop) { $toRedirect += 'Desktop' }
+    # Documents et Desktop : par défaut dans sous-dossier <COMPUTERNAME> pour éviter
+    # les collisions entre PC (voir -FlatPersonalFolders pour revenir à plat).
+    $perPcFolders = if ($FlatPersonalFolders) { @() } else { @('Documents','Desktop') }
     $refreshList = @()
 
     foreach ($name in $toRedirect) {
         $kf      = $KnownFolders[$name]
         $oldPath = Get-CurrentKnownFolderPath -RegName $kf.Reg
         if (-not $oldPath) { $oldPath = $kf.Local }
-        $newPath = Join-Path $rootPath $name
+        if ($perPcFolders -contains $name) {
+            $newPath = Join-Path (Join-Path $rootPath $name) $env:COMPUTERNAME
+        } else {
+            $newPath = Join-Path $rootPath $name
+        }
 
         # 3D Objects désactivé par défaut sur Win11 22H2+ : skip sauf si -Force3DObjects
         if ($name -eq '3D Objects' -and -not (Test-Path -LiteralPath $oldPath)) {

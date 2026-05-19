@@ -99,7 +99,7 @@ $cbDesktop.Add_CheckedChanged({
 $grpFolders.Controls.AddRange(@($cbDesktop, $cbDesktopShortcuts, $cb3D, $cbScripts, $cbDev, $cbOffice))
 
 # === Section 2 : Configuration ===
-$grpConfig = New-GroupBox 'Configuration' 10 215 540 145
+$grpConfig = New-GroupBox 'Configuration' 10 215 540 170
 
 $grpConfig.Controls.Add((New-Label 'Nom du dossier racine sur Drive :' 15 30 220))
 $txtRoot = New-Object System.Windows.Forms.TextBox
@@ -127,8 +127,12 @@ $grpConfig.Controls.Add($numTimeout)
 $cbSkipInstall = New-Check '-SkipInstall  (Google Drive déjà installé et connecté)' 15 115 510
 $grpConfig.Controls.Add($cbSkipInstall)
 
+$cbFlatPersonal = New-Check '-FlatPersonalFolders  (Documents/Desktop partagés entre PC au lieu de sous-dossier par PC)' 15 140 510 `
+    "Par défaut, Documents et Desktop vont dans un sous-dossier <NomPC> pour éviter les collisions entre plusieurs PC. Coche pour partager à plat."
+$grpConfig.Controls.Add($cbFlatPersonal)
+
 # === Section 3 : OneDrive ===
-$grpOneDrive = New-GroupBox 'OneDrive' 10 370 540 100
+$grpOneDrive = New-GroupBox 'OneDrive' 10 395 540 100
 
 $cbDisableOD = New-Check '-DisableOneDrive  (migrer puis désinstaller OneDrive)' 15 25 510 `
     "Désinstalle OneDrive et bloque sa réinstallation via policy HKLM. Impact: désactive aussi OneDrive for Business."
@@ -142,7 +146,7 @@ $tooltip.SetToolTip($btnRestore, "Lance le script en mode -RestoreOneDrive sans 
 $grpOneDrive.Controls.AddRange(@($cbDisableOD, $btnRestore))
 
 # === Section 4 : Accès rapide Windows ===
-$grpQA = New-GroupBox 'Accès rapide Windows' 10 480 540 195
+$grpQA = New-GroupBox 'Accès rapide Windows' 10 505 540 195
 
 $lblQA = New-Label "Épingle les dossiers Drive (Scripts, 3D Objects, etc.) à l'Accès rapide Explorer." 15 22 510
 $lblQA.AutoSize = $false
@@ -199,13 +203,13 @@ Update-ScheduledState
 $grpQA.Controls.AddRange(@($lblQA, $btnRefreshQA, $lblSched, $lblInterval, $numInterval, $btnInstallSched, $btnUninstallSched, $lblSchedState))
 
 # === Section 5 : Options globales ===
-$grpOpts = New-GroupBox 'Options' 10 685 540 60
+$grpOpts = New-GroupBox 'Options' 10 710 540 60
 $cbForce = New-Check '-Force  (aucune confirmation interactive — mode automatique)' 15 25 510 `
     "ATTENTION : -Force autorise aussi la sync de clés SSH non chiffrées."
 $grpOpts.Controls.Add($cbForce)
 
 # === Aperçu commande ===
-$grpPreview = New-GroupBox 'Aperçu de la commande' 10 755 540 100
+$grpPreview = New-GroupBox 'Aperçu de la commande' 10 780 540 100
 $txtPreview = New-Object System.Windows.Forms.TextBox
 $txtPreview.Location = New-Object System.Drawing.Point(10, 22)
 $txtPreview.Size = New-Object System.Drawing.Size(520, 70)
@@ -267,6 +271,7 @@ function Get-ArgsFromForm {
     if ($cbDev.Checked)         { $a += '-IncludeDevConfig' }
     if ($cbOffice.Checked)      { $a += '-IncludeOfficeTemplates' }
     if ($cbSkipInstall.Checked) { $a += '-SkipInstall' }
+    if ($cbFlatPersonal.Checked) { $a += '-FlatPersonalFolders' }
     if ($cbDisableOD.Checked)   { $a += '-DisableOneDrive' }
     if ($cbForce.Checked)       { $a += '-Force' }
     if ($txtLetter.Text -match '^[A-Za-z]$') { $a += @('-DriveLetter', $txtLetter.Text) }
@@ -288,7 +293,7 @@ Update-Preview
 
 # Hook tous les contrôles pour rafraîchir l'aperçu
 foreach ($c in @($cbDesktop, $cbDesktopShortcuts, $cb3D, $cbScripts, $cbDev, $cbOffice,
-                 $cbSkipInstall, $cbDisableOD, $cbForce)) {
+                 $cbSkipInstall, $cbFlatPersonal, $cbDisableOD, $cbForce)) {
     $c.Add_CheckedChanged({ Update-Preview })
 }
 $txtRoot.Add_TextChanged({ Update-Preview })
