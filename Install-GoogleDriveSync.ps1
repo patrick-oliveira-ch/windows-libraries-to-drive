@@ -650,11 +650,13 @@ function Register-DriveSyncRefreshTask {
         -LogonType Interactive `
         -RunLevel Limited
 
+    # StopExisting : si une instance précédente est restée bloquée (ex: popup wscript non fermé),
+    # le prochain trigger la kill et démarre proprement. IgnoreNew aurait bloqué indéfiniment.
     $settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
         -StartWhenAvailable `
-        -MultipleInstances IgnoreNew `
+        -MultipleInstances StopExisting `
         -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
         -RestartCount 0
 
