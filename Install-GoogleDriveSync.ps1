@@ -528,8 +528,9 @@ function Update-QuickAccessPins {
         return
     }
     Write-Log "=== Épinglage Accès rapide ===" 'INFO'
-    # Ces dossiers sont déjà visibles dans l'Explorateur via leur Known Folder.
-    $skipNames = @('Documents','Pictures','Videos','Music','3D Objects','Desktop')
+    # Ces Known Folders sont déjà épinglés par défaut dans l'Accès rapide Win10/11.
+    # 3D Objects NE l'est PAS (retiré du défaut depuis Win11 22H2) → on l'épingle.
+    $skipNames = @('Documents','Pictures','Videos','Music','Desktop')
     foreach ($d in Get-ChildItem -LiteralPath $RootPath -Directory -ErrorAction SilentlyContinue) {
         if ($skipNames -contains $d.Name) {
             Write-Log "Skip $($d.Name) (Known Folder, déjà visible)"
