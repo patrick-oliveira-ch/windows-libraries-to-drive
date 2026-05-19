@@ -596,6 +596,28 @@ function Test-ScheduledRefreshInstalled {
     return $null -ne (Get-ScheduledTask -TaskName $script:ScheduledTaskName -ErrorAction SilentlyContinue)
 }
 
+function New-HiddenLauncherScript {
+    # Génère un wrapper VBS qui lance PowerShell de façon TOTALEMENT invisible.
+    # Sans ce wrapper, lancer powershell.exe -WindowStyle Hidden via tâche planifiée
+    # provoque un flash bref de conhost à chaque exécution (très gênant toutes les N min).
+    param([Parameter(Mandatory)][string]$TargetScript)
+    $launcherDir = Join-Path $env:LOCALAPPDATA 'GoogleDriveSync'
+    if (-not (Test-Path -LiteralPath $launcherDir)) {
+        New-Item -ItemType Directory -Path $launcherDir -Force | Out-Null
+    }
+    $launcherPath = Join-Path $launcherDir 'HiddenLauncher.vbs'
+    $vbsContent = @"
+' Auto-généré par Install-GoogleDriveSync.ps1
+' Lance PowerShell sans aucune fenêtre visible (pas de flash cmd).
+' WScript.Shell.Run(cmd, intWindowStyle=0, bWaitOnReturn=False)
+Set sh = CreateObject("WScript.Shell")
+sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$TargetScript"" -RefreshQuickAccess", 0, False
+"@
+    # UTF-16 LE avec BOM : format universellement supporté par wscript.exe pour les paths non-ASCII.
+    [System.IO.File]::WriteAllText($launcherPath, $vbsContent, [System.Text.Encoding]::Unicode)
+    return $launcherPath
+}
+
 function Register-DriveSyncRefreshTask {
     param([Parameter(Mandatory)][int]$IntervalMinutes)
 
@@ -605,9 +627,12 @@ function Register-DriveSyncRefreshTask {
     Write-Log "  Script  : $scriptPath"
     Write-Log "  Cadence : toutes les $IntervalMinutes min, dès la connexion"
 
+    $launcherPath = New-HiddenLauncherScript -TargetScript $scriptPath
+    Write-Log "  Launcher VBS : $launcherPath (silencieux)"
+
     $action = New-ScheduledTaskAction `
-        -Execute 'powershell.exe' `
-        -Argument ("-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -RefreshQuickAccess")
+        -Execute 'wscript.exe' `
+        -Argument ('"{0}"' -f $launcherPath)
 
     # Deux triggers séparés (assigner Repetition entre triggers ne marche pas en PS 5.1) :
     #   1. AtLogOn : démarre dès la connexion utilisateur
@@ -650,6 +675,16 @@ function Unregister-DriveSyncRefreshTask {
         Write-Log "Tâche planifiée '$script:ScheduledTaskName' supprimée." 'OK'
     } else {
         Write-Log "Pas de tâche '$script:ScheduledTaskName' à supprimer." 'INFO'
+    }
+    # Nettoyage du launcher VBS
+    $launcherPath = Join-Path $env:LOCALAPPDATA 'GoogleDriveSync\HiddenLauncher.vbs'
+    if (Test-Path -LiteralPath $launcherPath) {
+        try {
+            Remove-Item -LiteralPath $launcherPath -Force
+            Write-Log "Launcher VBS supprimé." 'OK'
+        } catch {
+            Write-Log "Impossible de supprimer $launcherPath : $($_.Exception.Message)" 'WARN'
+        }
     }
 }
 
