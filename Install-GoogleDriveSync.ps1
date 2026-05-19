@@ -50,6 +50,17 @@
     qui ne correspondent pas à un Known Folder déjà visible. Utile après avoir créé
     de nouveaux dossiers sur Drive depuis un autre PC. Ne nécessite pas les droits admin.
 
+.PARAMETER InstallScheduledRefresh
+    Installe une tâche planifiée Windows qui lance -RefreshQuickAccess automatiquement
+    toutes les N minutes (voir -IntervalMinutes). Démarre à la connexion utilisateur.
+    Tâche nommée 'GoogleDriveSync-RefreshQuickAccess', tourne en arrière-plan caché.
+
+.PARAMETER IntervalMinutes
+    Intervalle (en minutes) entre deux exécutions du auto-refresh. Défaut : 15. Range : 5-1440.
+
+.PARAMETER UninstallScheduledRefresh
+    Supprime la tâche planifiée installée par -InstallScheduledRefresh.
+
 .PARAMETER IncludeScripts
     Synchronise %USERPROFILE%\Scripts\ via symlink.
 
@@ -127,6 +138,16 @@ param(
 
     [Parameter(ParameterSetName='Refresh', Mandatory=$true)]
     [switch]$RefreshQuickAccess,
+
+    [Parameter(ParameterSetName='ScheduleInstall', Mandatory=$true)]
+    [switch]$InstallScheduledRefresh,
+
+    [Parameter(ParameterSetName='ScheduleInstall')]
+    [ValidateRange(5, 1440)]
+    [int]$IntervalMinutes = 15,
+
+    [Parameter(ParameterSetName='ScheduleUninstall', Mandatory=$true)]
+    [switch]$UninstallScheduledRefresh,
 
     [switch]$Force
 )
@@ -547,6 +568,66 @@ function Get-DriveRootPath {
     return Split-Path -Parent $docPath
 }
 
+# --- Tâche planifiée auto-refresh ---
+
+$script:ScheduledTaskName = 'GoogleDriveSync-RefreshQuickAccess'
+
+function Test-ScheduledRefreshInstalled {
+    return $null -ne (Get-ScheduledTask -TaskName $script:ScheduledTaskName -ErrorAction SilentlyContinue)
+}
+
+function Register-DriveSyncRefreshTask {
+    param([Parameter(Mandatory)][int]$IntervalMinutes)
+
+    if (-not $PSCommandPath) { throw "Chemin du script inconnu — relance via -File <chemin>." }
+    $scriptPath = $PSCommandPath
+    Write-Log "Installation tâche planifiée : $script:ScheduledTaskName"
+    Write-Log "  Script  : $scriptPath"
+    Write-Log "  Cadence : toutes les $IntervalMinutes min, dès la connexion"
+
+    $action = New-ScheduledTaskAction `
+        -Execute 'powershell.exe' `
+        -Argument ("-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -RefreshQuickAccess")
+
+    # Trigger à la connexion + sous-pattern qui répète toutes les X min indéfiniment
+    $logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+    $repTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+        -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)
+    $logonTrigger.Repetition = $repTrigger.Repetition
+
+    $principal = New-ScheduledTaskPrincipal `
+        -UserId "$env:USERDOMAIN\$env:USERNAME" `
+        -LogonType Interactive `
+        -RunLevel Limited
+
+    $settings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable `
+        -MultipleInstances IgnoreNew `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
+        -RestartCount 0
+
+    Register-ScheduledTask `
+        -TaskName $script:ScheduledTaskName `
+        -Action $action -Trigger $logonTrigger `
+        -Principal $principal -Settings $settings `
+        -Description "Auto-épingle les dossiers Drive sous WindowsLibraries à l'Accès rapide Explorer." `
+        -Force | Out-Null
+
+    Write-Log "Tâche planifiée enregistrée." 'OK'
+    Write-Log "Prochain run dans ~1 min, puis toutes les $IntervalMinutes min."
+}
+
+function Unregister-DriveSyncRefreshTask {
+    if (Test-ScheduledRefreshInstalled) {
+        Unregister-ScheduledTask -TaskName $script:ScheduledTaskName -Confirm:$false
+        Write-Log "Tâche planifiée '$script:ScheduledTaskName' supprimée." 'OK'
+    } else {
+        Write-Log "Pas de tâche '$script:ScheduledTaskName' à supprimer." 'INFO'
+    }
+}
+
 # --- Known Folders ---
 
 $KnownFolders = @{
@@ -909,6 +990,18 @@ try {
     }
 
     Assert-Admin
+
+    if ($InstallScheduledRefresh) {
+        Register-DriveSyncRefreshTask -IntervalMinutes $IntervalMinutes
+        Write-Log "=== Installation tâche planifiée terminée ===" 'OK'
+        return
+    }
+
+    if ($UninstallScheduledRefresh) {
+        Unregister-DriveSyncRefreshTask
+        Write-Log "=== Suppression tâche planifiée terminée ===" 'OK'
+        return
+    }
 
     if ($RestoreOneDrive) {
         Restore-OneDrivePolicies

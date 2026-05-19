@@ -133,28 +133,70 @@ $tooltip.SetToolTip($btnRestore, "Lance le script en mode -RestoreOneDrive sans 
 $grpOneDrive.Controls.AddRange(@($cbDisableOD, $btnRestore))
 
 # === Section 4 : Accès rapide Windows ===
-$grpQA = New-GroupBox 'Accès rapide Windows' 10 450 540 90
+$grpQA = New-GroupBox 'Accès rapide Windows' 10 450 540 195
 
-$lblQA = New-Label "Épingle les dossiers Drive (Scripts, etc.) à l'Accès rapide Explorer." 15 22 510
+$lblQA = New-Label "Épingle les dossiers Drive (Scripts, 3D Objects, etc.) à l'Accès rapide Explorer." 15 22 510
 $lblQA.AutoSize = $false
 $lblQA.Size = New-Object System.Drawing.Size(510, 20)
 
 $btnRefreshQA = New-Object System.Windows.Forms.Button
-$btnRefreshQA.Text = "Réépingler maintenant (refresh après création de nouveau dossier Drive)"
+$btnRefreshQA.Text = "Réépingler maintenant (one-shot)"
 $btnRefreshQA.Location = New-Object System.Drawing.Point(15, 50)
 $btnRefreshQA.Size = New-Object System.Drawing.Size(510, 30)
 $tooltip.SetToolTip($btnRefreshQA, "Lance -RefreshQuickAccess : pas besoin d'admin, n'épingle que les dossiers extras (skip Documents/Pictures/etc. déjà visibles).")
 
-$grpQA.Controls.AddRange(@($lblQA, $btnRefreshQA))
+# Sous-section tâche planifiée
+$lblSched = New-Label "Tâche planifiée auto-refresh (toutes les N minutes)" 15 95 510
+$lblSched.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+
+$lblInterval = New-Label 'Intervalle (minutes) :' 15 120 130
+$numInterval = New-Object System.Windows.Forms.NumericUpDown
+$numInterval.Location = New-Object System.Drawing.Point(145, 118)
+$numInterval.Size = New-Object System.Drawing.Size(70, 22)
+$numInterval.Minimum = 5
+$numInterval.Maximum = 1440
+$numInterval.Value = 15
+
+$btnInstallSched = New-Object System.Windows.Forms.Button
+$btnInstallSched.Text = 'Activer'
+$btnInstallSched.Location = New-Object System.Drawing.Point(225, 116)
+$btnInstallSched.Size = New-Object System.Drawing.Size(140, 26)
+$tooltip.SetToolTip($btnInstallSched, "Crée une tâche planifiée Windows qui run -RefreshQuickAccess à la connexion + toutes les N min.")
+
+$btnUninstallSched = New-Object System.Windows.Forms.Button
+$btnUninstallSched.Text = 'Désactiver'
+$btnUninstallSched.Location = New-Object System.Drawing.Point(370, 116)
+$btnUninstallSched.Size = New-Object System.Drawing.Size(155, 26)
+$tooltip.SetToolTip($btnUninstallSched, "Supprime la tâche planifiée.")
+
+$lblSchedState = New-Label '' 15 150 510
+$lblSchedState.ForeColor = [System.Drawing.Color]::DarkGreen
+
+function Update-ScheduledState {
+    $task = Get-ScheduledTask -TaskName 'GoogleDriveSync-RefreshQuickAccess' -ErrorAction SilentlyContinue
+    if ($task) {
+        $info = Get-ScheduledTaskInfo -InputObject $task -ErrorAction SilentlyContinue
+        $last = if ($info -and $info.LastRunTime.Year -gt 1) { $info.LastRunTime.ToString('yyyy-MM-dd HH:mm') } else { 'jamais' }
+        $next = if ($info -and $info.NextRunTime.Year -gt 1) { $info.NextRunTime.ToString('HH:mm') } else { '?' }
+        $lblSchedState.Text = "État : Activée (dernier run : $last  |  prochain : $next)"
+        $lblSchedState.ForeColor = [System.Drawing.Color]::DarkGreen
+    } else {
+        $lblSchedState.Text = 'État : Désactivée (aucune tâche planifiée)'
+        $lblSchedState.ForeColor = [System.Drawing.Color]::DarkRed
+    }
+}
+Update-ScheduledState
+
+$grpQA.Controls.AddRange(@($lblQA, $btnRefreshQA, $lblSched, $lblInterval, $numInterval, $btnInstallSched, $btnUninstallSched, $lblSchedState))
 
 # === Section 5 : Options globales ===
-$grpOpts = New-GroupBox 'Options' 10 550 540 60
+$grpOpts = New-GroupBox 'Options' 10 655 540 60
 $cbForce = New-Check '-Force  (aucune confirmation interactive — mode automatique)' 15 25 510 `
     "ATTENTION : -Force autorise aussi la sync de clés SSH non chiffrées."
 $grpOpts.Controls.Add($cbForce)
 
 # === Aperçu commande ===
-$grpPreview = New-GroupBox 'Aperçu de la commande' 10 620 540 100
+$grpPreview = New-GroupBox 'Aperçu de la commande' 10 725 540 100
 $txtPreview = New-Object System.Windows.Forms.TextBox
 $txtPreview.Location = New-Object System.Drawing.Point(10, 22)
 $txtPreview.Size = New-Object System.Drawing.Size(520, 70)
@@ -201,6 +243,8 @@ $form.CancelButton = $btnCancel
 # --- Génération des args ---
 function Get-ArgsForRestore { return @('-RestoreOneDrive') }
 function Get-ArgsForRefreshQA { return @('-RefreshQuickAccess') }
+function Get-ArgsForInstallSched { param([int]$Interval) return @('-InstallScheduledRefresh','-IntervalMinutes',$Interval.ToString()) }
+function Get-ArgsForUninstallSched { return @('-UninstallScheduledRefresh') }
 
 function Get-ArgsFromForm {
     $a = @()
@@ -274,6 +318,25 @@ $btnRestore.Add_Click({
 
 $btnRefreshQA.Add_Click({
     Invoke-MainScript -ScriptArgs (Get-ArgsForRefreshQA)
+    $form.Close()
+})
+
+$btnInstallSched.Add_Click({
+    $interval = [int]$numInterval.Value
+    $r = [System.Windows.Forms.MessageBox]::Show(
+        "Activer la tâche planifiée auto-refresh ?`n`nElle s'exécutera à chaque connexion + toutes les $interval minutes.`nUAC sera demandé.",
+        'Confirmation', 'YesNo', 'Question')
+    if ($r -ne 'Yes') { return }
+    Invoke-MainScript -ScriptArgs (Get-ArgsForInstallSched -Interval $interval)
+    $form.Close()
+})
+
+$btnUninstallSched.Add_Click({
+    $r = [System.Windows.Forms.MessageBox]::Show(
+        "Désactiver la tâche planifiée auto-refresh ?`n`nUAC sera demandé.",
+        'Confirmation', 'YesNo', 'Question')
+    if ($r -ne 'Yes') { return }
+    Invoke-MainScript -ScriptArgs (Get-ArgsForUninstallSched)
     $form.Close()
 })
 
