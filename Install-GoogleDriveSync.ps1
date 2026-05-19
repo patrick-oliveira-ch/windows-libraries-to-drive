@@ -650,13 +650,11 @@ function Register-DriveSyncRefreshTask {
         -LogonType Interactive `
         -RunLevel Limited
 
-    # StopExisting : si une instance précédente est restée bloquée (ex: popup wscript non fermé),
-    # le prochain trigger la kill et démarre proprement. IgnoreNew aurait bloqué indéfiniment.
     $settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
         -StartWhenAvailable `
-        -MultipleInstances StopExisting `
+        -MultipleInstances IgnoreNew `
         -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
         -RestartCount 0
 
@@ -678,16 +676,10 @@ function Unregister-DriveSyncRefreshTask {
     } else {
         Write-Log "Pas de tâche '$script:ScheduledTaskName' à supprimer." 'INFO'
     }
-    # Nettoyage du launcher VBS
-    $launcherPath = Join-Path $env:LOCALAPPDATA 'GoogleDriveSync\HiddenLauncher.vbs'
-    if (Test-Path -LiteralPath $launcherPath) {
-        try {
-            Remove-Item -LiteralPath $launcherPath -Force
-            Write-Log "Launcher VBS supprimé." 'OK'
-        } catch {
-            Write-Log "Impossible de supprimer $launcherPath : $($_.Exception.Message)" 'WARN'
-        }
-    }
+    # NB : on NE supprime PAS le launcher VBS. Raison : si un trigger phantom firait
+    # entre deux runs install/uninstall et que le VBS manque, wscript afficherait un
+    # popup d'erreur bloquant. Le VBS reste inoffensif sans la tâche.
+    # Pour nettoyage complet manuel : Remove-Item "$env:LOCALAPPDATA\GoogleDriveSync"
 }
 
 # --- Known Folders ---
